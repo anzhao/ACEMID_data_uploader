@@ -12,7 +12,7 @@ PROJECT_ID="your_xnat_project_id"
 
 # Check if the user has provided a csv input file or not
 if [ -z "$1" ]; then
-  echo "Usage: $0 <input_csv_file>"
+  echo "Usage: $0 <input_csv_file>."
   exit 1
 fi
 
