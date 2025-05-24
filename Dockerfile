@@ -20,7 +20,7 @@ RUN ls -al /app
 
 
 # Make sure the upload script is executable
-RUN chmod +x ACEMID_uploader.sh
+RUN chmod +x ACEMID_data_uploader.sh
 
 # Set environment variables (can be overridden at runtime)
 ENV XNAT_URL=""
@@ -29,4 +29,4 @@ ENV PASSWORD=""
 ENV PROJECT_ID=""
 
 # Default command to run the upload script
-CMD ["./ACEMID_uploader.sh"]
+CMD ["./ACEMID_data_uploader.sh"]
