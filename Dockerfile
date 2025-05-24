@@ -15,6 +15,10 @@ WORKDIR /app
 # Copy the entire repo into the container
 COPY . .
 
+# Check what is under the app dir
+RUN ls -al /app
+
+
 # Make sure the upload script is executable
 RUN chmod +x ACEMID_uploader.sh
 
