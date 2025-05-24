@@ -20,7 +20,7 @@ RUN ls -al /app
 
 
 # Make sure the upload script is executable
-RUN chmod +x ACEMID_uploader.sh
+RUN chmod +x /app/ACEMID_uploader.sh
 
 # Set environment variables (can be overridden at runtime)
 ENV XNAT_URL=""
