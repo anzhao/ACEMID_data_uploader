@@ -15,6 +15,12 @@ if ! command -v inotifywait &> /dev/null; then
     exit 1
 fi
 
+# Check if the ACEMID upload script is exists and is executable
+if [ ! -x "ACEMID_UPLOAD_SCRIPT" ]; then
+    echo "Error: ACEMID Upload script is not found at $ACEMID_UPLOAD_SCRIPT"
+    exit 1
+fi
+
 echo "Monitoring $WATCH_DIR for new files and directories..."
 echo "Logging to $LOG_FILE"
 
