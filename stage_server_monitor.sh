@@ -29,6 +29,7 @@ inotifywait -m -e create --format '%w%f' "$WATCH_DIR" | while read NEW_ENTRY
 do
     if [ -d "$NEW_ENTRY" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') - New directory detected: $NEW_ENTRY" | tee -a "$LOG_FILE"
+        "$ACEMID_UPLOAD_SCRIPT" "$NEW_ENTRY"  >> $LOG_FILE 2>&1
     elif [ -f "$NEW_ENTRY" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') - New file detected: $NEW_ENTRY" | tee -a "$LOG_FILE"
     else
