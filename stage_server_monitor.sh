@@ -6,6 +6,8 @@ WATCH_DIR="/path/to/stage/server/directory"
 # Log file
 LOG_FILE="/var/log/new_entries.log"
 
+ACEMID_UPLOAD_SCRIPT="ACEMID_data_uploader.sh"
+
 # In this script, we use inotify-tools to monitor changes to files and directories in real time
 # Check if inotifywait is installed or not
 if ! command -v inotifywait &> /dev/null; then
