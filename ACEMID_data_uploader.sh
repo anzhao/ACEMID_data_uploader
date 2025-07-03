@@ -7,6 +7,80 @@ XNAT_URL="your_xnat_url"
 USERNAME="your_xnat_username"
 PASSWORD="your_xnat_password"
 
+# Create a directory for speed test logs
+mkdir -p speed_logs
+
+# Function to measure and log transfer speeds
+measure_transfer_speed() {
+    local operation=$1
+    local url=$2
+    local output_file=$3
+    local format_string='{
+        "timestamp": "%{time_iso8601}",
+        "url": "%{url_effective}",
+        "http_code": %{http_code},
+        "time_total": %{time_total},
+        "size_upload": %{size_upload},
+        "size_download": %{size_download},
+        "speed_upload": %{speed_upload},
+        "speed_download": %{speed_download}
+    }'
+    
+    # Execute the curl command with the provided arguments and measure speed
+    eval "$operation" -w "$format_string" -o "$output_file" 2>> speed_logs/transfer_errors.log
+    
+    # Calculate and display human-readable speeds
+    if [ -f "$output_file" ]; then
+        local json_data=$(cat "$output_file")
+        local upload_speed=$(echo "$json_data" | grep -o '"speed_upload": [0-9.]*' | cut -d' ' -f2)
+        local download_speed=$(echo "$json_data" | grep -o '"speed_download": [0-9.]*' | cut -d' ' -f2)
+        local upload_size=$(echo "$json_data" | grep -o '"size_upload": [0-9.]*' | cut -d' ' -f2)
+        local download_size=$(echo "$json_data" | grep -o '"size_download": [0-9.]*' | cut -d' ' -f2)
+        
+        # Convert to human-readable format (KB/s, MB/s)
+        local upload_speed_hr=$(awk "BEGIN {printf \"%.2f KB/s\", $upload_speed/1024}")
+        local download_speed_hr=$(awk "BEGIN {printf \"%.2f KB/s\", $download_speed/1024}")
+        
+        if (( $(echo "$upload_speed > 1024*1024" | bc -l) )); then
+            upload_speed_hr=$(awk "BEGIN {printf \"%.2f MB/s\", $upload_speed/(1024*1024)}")
+        fi
+        
+        if (( $(echo "$download_speed > 1024*1024" | bc -l) )); then
+            download_speed_hr=$(awk "BEGIN {printf \"%.2f MB/s\", $download_speed/(1024*1024)}")
+        fi
+        
+        echo "Transfer to $url:"
+        echo "  - Upload: $upload_size bytes at $upload_speed_hr"
+        echo "  - Download: $download_size bytes at $download_speed_hr"
+        
+        # Log the results
+        echo "$json_data" >> speed_logs/transfer_speeds.json
+    else
+        echo "Error: Failed to measure transfer speed for $url"
+    fi
+}
+
+# Function to test download speed
+test_download_speed() {
+    local subject_id=$1
+    local session_id=$2
+    local scan_id=$3
+    local js_id=$4
+    
+    echo "Testing download speed for scan $scan_id..."
+    
+    # Create a temporary file for the download
+    local temp_file=$(mktemp)
+    
+    # Measure download speed by retrieving scan data
+    measure_transfer_speed "curl --cookie JSESSIONID=$js_id -X GET" \
+        "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$subject_id/experiments/${session_id}_single_zip/scans/$scan_id" \
+        "$temp_file"
+    
+    # Clean up
+    rm -f "$temp_file"
+}
+
 JS_ID=$(curl -u $USERNAME:$PASSWORD -X POST $XNAT_URL/data/JSESSION)
 echo "JSESSION_ID is $JS_ID"
 
@@ -111,13 +185,100 @@ for file in *.db; do
                     exit 1
                 fi
 
-                # Upload the single zip file
-                curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/${SESSION_ID}_single_zip/scans/$SCAN_ID/resources/RAW/files?extract=false" -F "file=@$FILENAME" &
-                # Upload the extract content file
-                curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/${SESSION_ID}_loose_files/scans/$SCAN_ID/resources/RAW/files?extract=true" -F "file=@$FILENAME" &
+                # Upload the single zip file and measure speed
+                echo "Uploading and measuring speed for single zip file: $FILENAME"
+                UPLOAD_URL="$XNAT_URL/data/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/${SESSION_ID}_single_zip/scans/$SCAN_ID/resources/RAW/files?extract=false"
+                TEMP_OUTPUT=$(mktemp)
+                measure_transfer_speed "curl --cookie JSESSIONID=$JS_ID -X PUT \"$UPLOAD_URL\" -F \"file=@$FILENAME\"" "$UPLOAD_URL" "$TEMP_OUTPUT"
+                rm -f "$TEMP_OUTPUT"
+                
+                # Upload the extract content file and measure speed
+                echo "Uploading and measuring speed for extracted content: $FILENAME"
+                UPLOAD_URL="$XNAT_URL/data/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/${SESSION_ID}_loose_files/scans/$SCAN_ID/resources/RAW/files?extract=true"
+                TEMP_OUTPUT=$(mktemp)
+                measure_transfer_speed "curl --cookie JSESSIONID=$JS_ID -X PUT \"$UPLOAD_URL\" -F \"file=@$FILENAME\"" "$UPLOAD_URL" "$TEMP_OUTPUT"
+                rm -f "$TEMP_OUTPUT"
+                
+                # Test download speed after upload is complete
+                test_download_speed "$SUBJECT_ID" "$SESSION_ID" "$SCAN_ID" "$JS_ID"
                                
             done
         fi
     fi
 done
 
+
+# Function to display summary statistics of all transfers
+display_transfer_summary() {
+    echo
+    echo "===== XNAT Transfer Speed Summary ====="
+    echo
+    
+    if [ -f "speed_logs/transfer_speeds.json" ]; then
+        # Calculate average upload and download speeds
+        local total_upload_size=0
+        local total_download_size=0
+        local total_upload_time=0
+        local total_download_time=0
+        local count=0
+        
+        while IFS= read -r line; do
+            # Extract values from JSON
+            local upload_size=$(echo "$line" | grep -o '"size_upload": [0-9.]*' | cut -d' ' -f2)
+            local download_size=$(echo "$line" | grep -o '"size_download": [0-9.]*' | cut -d' ' -f2)
+            local time_total=$(echo "$line" | grep -o '"time_total": [0-9.]*' | cut -d' ' -f2)
+            
+            # Add to totals
+            total_upload_size=$(echo "$total_upload_size + $upload_size" | bc)
+            total_download_size=$(echo "$total_download_size + $download_size" | bc)
+            
+            # Only count time if there was actual data transfer
+            if (( $(echo "$upload_size > 0" | bc -l) )); then
+                total_upload_time=$(echo "$total_upload_time + $time_total" | bc)
+            fi
+            
+            if (( $(echo "$download_size > 0" | bc -l) )); then
+                total_download_time=$(echo "$total_download_time + $time_total" | bc)
+            fi
+            
+            count=$((count + 1))
+        done < speed_logs/transfer_speeds.json
+        
+        # Calculate average speeds
+        if (( $(echo "$total_upload_time > 0" | bc -l) )); then
+            local avg_upload_speed=$(echo "scale=2; $total_upload_size / $total_upload_time" | bc)
+            local avg_upload_speed_kb=$(echo "scale=2; $avg_upload_speed / 1024" | bc)
+            local avg_upload_speed_mb=$(echo "scale=2; $avg_upload_speed_kb / 1024" | bc)
+            
+            echo "Upload Statistics:"
+            echo "  - Total data: $(echo "scale=2; $total_upload_size / (1024*1024)" | bc) MB"
+            echo "  - Average speed: $avg_upload_speed_kb KB/s ($avg_upload_speed_mb MB/s)"
+        else
+            echo "No upload data available."
+        fi
+        
+        if (( $(echo "$total_download_time > 0" | bc -l) )); then
+            local avg_download_speed=$(echo "scale=2; $total_download_size / $total_download_time" | bc)
+            local avg_download_speed_kb=$(echo "scale=2; $avg_download_speed / 1024" | bc)
+            local avg_download_speed_mb=$(echo "scale=2; $avg_download_speed_kb / 1024" | bc)
+            
+            echo "Download Statistics:"
+            echo "  - Total data: $(echo "scale=2; $total_download_size / (1024*1024)" | bc) MB"
+            echo "  - Average speed: $avg_download_speed_kb KB/s ($avg_download_speed_mb MB/s)"
+        else
+            echo "No download data available."
+        fi
+        
+        echo
+        echo "Total transfers: $count"
+        echo "Detailed logs available in: speed_logs/transfer_speeds.json"
+    else
+        echo "No transfer data available. Check if any transfers were completed."
+    fi
+    
+    echo
+    echo "======================================"
+}
+
+# Display summary at the end of all transfers
+display_transfer_summary
