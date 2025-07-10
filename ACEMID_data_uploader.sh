@@ -94,7 +94,39 @@ for file in *.db; do
                        FORMATTED_DATE=$(date -d "${SESSION_LABEL:0:8}" +%Y-%m-%d 2>/dev/null)
                        if [[ -n "$FORMATTED_DATE" ]]; then
                           echo "Folder name is numeric and date stamp inserted: $FORMATTED_DATE"
-                          RESPONSE=$(curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_single_zip&date=$FORMATTED_DATE" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null)
+FORMATTED_DATE=$(date -d "${SESSION_LABEL:0:8}" +%Y-%m-%d 2>/dev/null)
+                       if [[ -n "$FORMATTED_DATE" ]]; then
+                          echo "Folder name is numeric and date stamp inserted: $FORMATTED_DATE"
+                          # Parallel execution of curl commands
+                          {
+                              curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_single_zip&date=$FORMATTED_DATE" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null
+                              curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_loose_files&date=$FORMATTED_DATE" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null
+                          } | while read -r RESPONSE; do
+                              if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 201 ]; then
+                                  echo "Session created successfully."
+                              else
+                                  echo "Failed to create session. HTTP response code: $RESPONSE"
+                                  exit 1
+                              fi
+                          done
+                       fi
+                    else
+                        echo "folder name is not numeric format and skiping insert the date stamp ..."
+                        # Parallel execution of curl commands
+                        {
+                            curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_single_zip" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null
+                            curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_loose_files" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null
+                        } | while read -r RESPONSE; do
+                            if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 201 ]; then
+                                echo "Session created successfully."
+                            else
+                                echo "Failed to create session. HTTP response code: $RESPONSE"
+                                exit 1
+                            fi
+                        done
+                        continue
+                    fi
+                fi
                           RESPONSE=$(curl --cookie JSESSIONID=$JS_ID -X PUT "$XNAT_URL/data/archive/projects/$PROJECT_ID/subjects/$SUBJECT_ID/experiments/$SESSION_ID?xsiType=$SESSION_TYPE&label=${SESSION_LABEL}_loose_files&date=$FORMATTED_DATE" -H "Content-Type: application/json" -H "Content-Length: 0" -w "%{http_code}" -o /dev/null)
                        fi
                     else
